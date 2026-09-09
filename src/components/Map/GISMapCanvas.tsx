@@ -380,35 +380,36 @@ export const GISMapCanvas: React.FC = () => {
       <div ref={mapContainerRef} className="w-full h-full z-0" />
 
       {/* Top-Left: Live Backend Data Telemetry Chip */}
-      <div className="absolute top-3 left-3 z-10 pointer-events-auto">
-        <div className="flex items-center gap-2 px-3 py-1.5 rounded-full bg-slate-900/90 backdrop-blur-md border border-slate-700/70 text-xs shadow-xl">
-          <span className="w-2 h-2 rounded-full bg-emerald-400 animate-pulse" />
-          <span className="text-slate-300 font-medium">Live Telemetry:</span>
-          <span className="text-amber-400 font-semibold">West Bengal Heat Zones</span>
-          <span className="text-[10px] text-cyan-300 bg-cyan-950/80 px-1.5 py-0.5 rounded border border-cyan-500/40 font-mono">
+      <div className="absolute top-2 sm:top-3 left-2 sm:left-3 z-10 pointer-events-auto max-w-[calc(100vw-1rem)]">
+        <div className="flex items-center gap-1.5 sm:gap-2 px-2.5 sm:px-3 py-1 sm:py-1.5 rounded-full bg-slate-900/90 backdrop-blur-md border border-slate-700/70 text-[11px] sm:text-xs shadow-xl">
+          <span className="w-1.5 h-1.5 sm:w-2 sm:h-2 rounded-full bg-emerald-400 animate-pulse flex-shrink-0" />
+          <span className="text-slate-300 font-medium hidden xs:inline">Live:</span>
+          <span className="text-amber-400 font-semibold truncate">West Bengal Heat Zones</span>
+          <span className="hidden md:inline-block text-[10px] text-cyan-300 bg-cyan-950/80 px-1.5 py-0.5 rounded border border-cyan-500/40 font-mono">
             FastAPI + pythermalcomfort
           </span>
         </div>
       </div>
 
-      {/* Bottom-Left: Minimalist Heat Safety Guide Trigger */}
-      <div className="absolute bottom-3 left-3 z-10 pointer-events-auto">
+      {/* Bottom-Left: Responsive Heat Safety Guide Trigger (Icon-only on mobile) */}
+      <div className="absolute bottom-2.5 sm:bottom-3 left-2.5 sm:left-3 z-10 pointer-events-auto">
         <button
           onClick={() => setIsLegendOpen(!isLegendOpen)}
-          className={`flex items-center gap-1.5 px-3 py-1.5 rounded-full border text-xs font-medium transition cursor-pointer shadow-lg backdrop-blur-md ${
+          className={`flex items-center justify-center gap-1.5 p-2 sm:px-3 sm:py-1.5 rounded-full border text-xs font-medium transition cursor-pointer shadow-lg backdrop-blur-md ${
             isLegendOpen
               ? 'bg-slate-800 text-white border-slate-600'
               : 'bg-slate-900/80 hover:bg-slate-800 text-slate-300 border-slate-700/60 hover:text-white'
           }`}
           title="Heat Safety Guide"
+          aria-label="Heat Safety Guide"
         >
-          <Info className="w-3.5 h-3.5 text-amber-400" />
-          <span className="text-[11px] font-medium">Heat Safety Guide</span>
+          <Info className="w-4 h-4 sm:w-3.5 sm:h-3.5 text-amber-400 flex-shrink-0" />
+          <span className="hidden sm:inline text-[11px] font-medium whitespace-nowrap">Heat Safety Guide</span>
         </button>
 
         {/* Clean Minimalist Popover */}
         {isLegendOpen && (
-          <div className="absolute bottom-10 left-0 w-64 p-3 rounded-xl bg-slate-900/95 border border-slate-800 shadow-2xl backdrop-blur-md text-xs space-y-2 z-30">
+          <div className="absolute bottom-11 left-0 w-64 max-w-[calc(100vw-1.5rem)] p-3 rounded-xl bg-slate-900/95 border border-slate-800 shadow-2xl backdrop-blur-md text-xs space-y-2 z-30">
             <div className="flex items-center justify-between border-b border-slate-800 pb-1.5">
               <div>
                 <div className="text-xs font-bold text-slate-100">Heat Safety Guide</div>
@@ -417,6 +418,7 @@ export const GISMapCanvas: React.FC = () => {
               <button
                 onClick={() => setIsLegendOpen(false)}
                 className="p-1 rounded text-slate-400 hover:text-white hover:bg-slate-800 transition cursor-pointer"
+                aria-label="Close guide"
               >
                 <X className="w-3.5 h-3.5" />
               </button>

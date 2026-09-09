@@ -52,12 +52,12 @@ export const ForecastSlider: React.FC = () => {
   };
 
   return (
-    <div className="h-11 bg-slate-900/90 backdrop-blur-md border-t border-slate-800/80 px-4 flex items-center gap-4 text-xs select-none z-20">
-      {/* 1. Play / Pause & Single Clean Timestamp */}
-      <div className="flex items-center gap-2.5 flex-shrink-0">
+    <div className="h-10 sm:h-11 bg-slate-900/90 backdrop-blur-md border-t border-slate-800/80 px-2.5 sm:px-4 flex items-center gap-2 sm:gap-4 text-xs select-none z-20">
+      {/* 1. Play / Pause & Single Clean Responsive Timestamp */}
+      <div className="flex items-center gap-1.5 sm:gap-2.5 flex-shrink-0">
         <button
           onClick={togglePlay}
-          className={`flex items-center justify-center w-7 h-7 rounded-full text-xs border transition cursor-pointer ${
+          className={`flex items-center justify-center w-6.5 h-6.5 sm:w-7 sm:h-7 rounded-full text-xs border transition cursor-pointer flex-shrink-0 ${
             isPlaying
               ? 'bg-amber-500 hover:bg-amber-400 text-slate-950 border-amber-400'
               : 'bg-slate-800/90 hover:bg-slate-750 text-slate-200 border-slate-700/80'
@@ -65,20 +65,22 @@ export const ForecastSlider: React.FC = () => {
           title={isPlaying ? 'Pause' : 'Play'}
         >
           {isPlaying ? (
-            <Pause className="w-3 h-3 fill-current" />
+            <Pause className="w-2.5 h-2.5 sm:w-3 sm:h-3 fill-current" />
           ) : (
-            <Play className="w-3 h-3 fill-current ml-0.5" />
+            <Play className="w-2.5 h-2.5 sm:w-3 sm:h-3 fill-current ml-0.5" />
           )}
         </button>
 
-        <div className="flex items-center gap-1.5 text-xs text-slate-200 font-semibold tracking-tight min-w-[210px]">
-          <Clock className="w-3.5 h-3.5 text-amber-400 flex-shrink-0" />
-          <span>{formatConversationalTime(activeHour)}</span>
+        <div className="flex items-center gap-1 sm:gap-1.5 text-[11px] sm:text-xs text-slate-200 font-semibold tracking-tight whitespace-nowrap">
+          <Clock className="w-3 h-3 sm:w-3.5 sm:h-3.5 text-amber-400 flex-shrink-0" />
+          <span className="truncate max-w-[125px] xs:max-w-[170px] sm:max-w-none">
+            {formatConversationalTime(activeHour)}
+          </span>
         </div>
       </div>
 
       {/* 2. Single Thin Gradient Bar & Scrubber */}
-      <div className="relative flex-1 flex items-center">
+      <div className="relative flex-1 min-w-[70px] sm:min-w-[140px] flex items-center">
         <div className="relative h-2 w-full bg-slate-950 border border-slate-800/80 rounded-full overflow-hidden">
           {/* Heat Gradient Progress Fill */}
           <div 
@@ -100,14 +102,16 @@ export const ForecastSlider: React.FC = () => {
         />
       </div>
 
-      {/* 3. Single Action: Jump to Hottest Hour */}
+      {/* 3. Responsive Action: Jump to Hottest Hour */}
       <button
         onClick={jumpToNextPeak}
-        className="flex items-center gap-1.5 px-3 py-1 rounded-full bg-amber-500/15 hover:bg-amber-500/25 text-amber-300 border border-amber-500/30 text-xs font-medium transition cursor-pointer flex-shrink-0"
-        title="Jump to hottest afternoon hour"
+        className="flex items-center gap-1 sm:gap-1.5 px-2 sm:px-3 py-1 rounded-full bg-amber-500/15 hover:bg-amber-500/25 text-amber-300 border border-amber-500/30 text-[11px] sm:text-xs font-medium transition cursor-pointer flex-shrink-0 whitespace-nowrap"
+        title="Jump to hottest afternoon hour (14:00 peak)"
       >
-        <SunMedium className="w-3.5 h-3.5 text-amber-400" />
-        <span>Jump to Hottest Hour</span>
+        <SunMedium className="w-3 h-3 sm:w-3.5 sm:h-3.5 text-amber-400 flex-shrink-0" />
+        <span className="hidden md:inline">Jump to Hottest Hour</span>
+        <span className="hidden sm:inline md:hidden">Hottest Hour</span>
+        <span className="sm:hidden">Peak</span>
       </button>
     </div>
   );

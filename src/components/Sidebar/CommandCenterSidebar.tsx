@@ -65,7 +65,7 @@ export const CommandCenterSidebar: React.FC = () => {
     : INFRASTRUCTURE_ASSETS.filter((a) => a.wardId === activeWard!.id && (a.type === 'health_center' || a.type === 'hospital'));
 
   return (
-    <aside className="w-88 sm:w-96 h-full bg-slate-900 border-l border-slate-800 flex flex-col z-20 select-none shadow-2xl backdrop-blur-md">
+    <aside className="w-full sm:w-88 md:w-96 max-w-full h-full bg-slate-900 border-l border-slate-800 flex flex-col z-20 select-none shadow-2xl backdrop-blur-md absolute sm:relative right-0 top-0">
       {/* Header: Area Name and Close Button */}
       <div className="p-4 border-b border-slate-800 flex items-start justify-between gap-3 bg-slate-950/70">
         <div className="space-y-1">
