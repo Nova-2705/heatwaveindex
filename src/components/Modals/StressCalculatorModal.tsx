@@ -1,0 +1,319 @@
+import React, { useState } from 'react';
+import { X, Activity, Flame, Wind, Droplets, Sun, AlertTriangle, ShieldCheck, RefreshCw, Cpu } from 'lucide-react';
+import { useCommandCenterStore } from '../../store/useCommandCenterStore';
+import { calculateThermalStress, type StressCalculationResult } from '../../services/heatApi';
+
+export const StressCalculatorModal: React.FC = () => {
+  const { isStressModalOpen, setStressModalOpen } = useCommandCenterStore();
+
+  const [airTemp, setAirTemp] = useState<number>(39.5);
+  const [humidity, setHumidity] = useState<number>(65);
+  const [windSpeed, setWindSpeed] = useState<number>(1.8);
+  const [solarRadiation, setSolarRadiation] = useState<number>(800);
+  const [loading, setLoading] = useState<boolean>(false);
+  const [result, setResult] = useState<StressCalculationResult | null>(null);
+  const [error, setError] = useState<string | null>(null);
+
+  if (!isStressModalOpen) return null;
+
+  const handleCalculate = async () => {
+    setLoading(true);
+    setError(null);
+    try {
+      const res = await calculateThermalStress({
+        air_temperature: airTemp,
+        relative_humidity: humidity,
+        wind_speed: windSpeed,
+        wind_speed_unit: 'm/s',
+        solar_radiation: solarRadiation,
+      });
+      setResult(res);
+    } catch (err: any) {
+      setError(err?.message || 'Calculation request failed. Ensure FastAPI is running on port 8000.');
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const applyPreset = (t: number, h: number, w: number, s: number) => {
+    setAirTemp(t);
+    setHumidity(h);
+    setWindSpeed(w);
+    setSolarRadiation(s);
+  };
+
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/75 backdrop-blur-sm animate-fadeIn">
+      <div className="bg-slate-900 border border-slate-700/80 rounded-2xl w-full max-w-2xl overflow-hidden shadow-2xl flex flex-col max-h-[90vh]">
+        {/* Header */}
+        <div className="px-6 py-4 border-b border-slate-800 flex items-center justify-between bg-slate-950/60">
+          <div className="flex items-center gap-3">
+            <div className="p-2 rounded-xl bg-amber-500/15 border border-amber-500/30 text-amber-400">
+              <Cpu className="w-5 h-5" />
+            </div>
+            <div>
+              <h2 className="text-base font-bold text-white flex items-center gap-2">
+                Biometeorological Thermal Index Calculator
+                <span className="text-[10px] uppercase font-mono px-2 py-0.5 rounded-full bg-cyan-950 text-cyan-400 border border-cyan-500/30">
+                  pythermalcomfort
+                </span>
+              </h2>
+              <p className="text-xs text-slate-400">
+                Live physiological microclimate simulation via Python FastAPI backend
+              </p>
+            </div>
+          </div>
+          <button
+            onClick={() => setStressModalOpen(false)}
+            className="p-1.5 rounded-lg text-slate-400 hover:text-white hover:bg-slate-800 transition"
+          >
+            <X className="w-5 h-5" />
+          </button>
+        </div>
+
+        {/* Content Body */}
+        <div className="p-6 overflow-y-auto space-y-6 flex-1">
+          {/* Presets */}
+          <div>
+            <span className="text-xs font-semibold text-slate-400 uppercase tracking-wider block mb-2">
+              Regional Climate Presets
+            </span>
+            <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
+              <button
+                type="button"
+                onClick={() => applyPreset(39.0, 72, 1.5, 850)}
+                className="px-2.5 py-1.5 rounded-lg bg-slate-800/80 hover:bg-slate-700 text-[11px] font-medium text-slate-200 border border-slate-700 text-left transition"
+              >
+                🌊 Kolkata Peak
+                <span className="block text-[10px] text-slate-400">39°C • 72% RH</span>
+              </button>
+              <button
+                type="button"
+                onClick={() => applyPreset(44.5, 24, 2.8, 980)}
+                className="px-2.5 py-1.5 rounded-lg bg-slate-800/80 hover:bg-slate-700 text-[11px] font-medium text-slate-200 border border-slate-700 text-left transition"
+              >
+                ☀️ Asansol Mining
+                <span className="block text-[10px] text-slate-400">44.5°C • 24% RH</span>
+              </button>
+              <button
+                type="button"
+                onClick={() => applyPreset(41.0, 64, 1.2, 800)}
+                className="px-2.5 py-1.5 rounded-lg bg-slate-800/80 hover:bg-slate-700 text-[11px] font-medium text-slate-200 border border-slate-700 text-left transition"
+              >
+                🏭 Howrah Industry
+                <span className="block text-[10px] text-slate-400">41°C • 64% RH</span>
+              </button>
+              <button
+                type="button"
+                onClick={() => applyPreset(27.0, 45, 3.2, 150)}
+                className="px-2.5 py-1.5 rounded-lg bg-slate-800/80 hover:bg-slate-700 text-[11px] font-medium text-slate-200 border border-slate-700 text-left transition"
+              >
+                🍃 Safe Conditions
+                <span className="block text-[10px] text-slate-400">27°C • 45% RH</span>
+              </button>
+            </div>
+          </div>
+
+          {/* Environmental Parameter Controls */}
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 bg-slate-950/50 p-4 rounded-xl border border-slate-800/80">
+            {/* Air Temp */}
+            <div className="space-y-1.5">
+              <div className="flex justify-between text-xs">
+                <span className="text-slate-300 font-medium flex items-center gap-1.5">
+                  <Flame className="w-3.5 h-3.5 text-orange-400" /> Air Temperature
+                </span>
+                <span className="font-mono text-orange-400 font-bold">{airTemp}°C</span>
+              </div>
+              <input
+                type="range"
+                min={20}
+                max={50}
+                step={0.5}
+                value={airTemp}
+                onChange={(e) => setAirTemp(parseFloat(e.target.value))}
+                className="w-full accent-orange-500 cursor-pointer"
+              />
+            </div>
+
+            {/* Relative Humidity */}
+            <div className="space-y-1.5">
+              <div className="flex justify-between text-xs">
+                <span className="text-slate-300 font-medium flex items-center gap-1.5">
+                  <Droplets className="w-3.5 h-3.5 text-sky-400" /> Relative Humidity
+                </span>
+                <span className="font-mono text-sky-400 font-bold">{humidity}%</span>
+              </div>
+              <input
+                type="range"
+                min={10}
+                max={100}
+                step={1}
+                value={humidity}
+                onChange={(e) => setHumidity(parseInt(e.target.value, 10))}
+                className="w-full accent-sky-500 cursor-pointer"
+              />
+            </div>
+
+            {/* Wind Speed */}
+            <div className="space-y-1.5">
+              <div className="flex justify-between text-xs">
+                <span className="text-slate-300 font-medium flex items-center gap-1.5">
+                  <Wind className="w-3.5 h-3.5 text-teal-400" /> Wind Speed (10m)
+                </span>
+                <span className="font-mono text-teal-400 font-bold">{windSpeed} m/s</span>
+              </div>
+              <input
+                type="range"
+                min={0.5}
+                max={12}
+                step={0.1}
+                value={windSpeed}
+                onChange={(e) => setWindSpeed(parseFloat(e.target.value))}
+                className="w-full accent-teal-500 cursor-pointer"
+              />
+            </div>
+
+            {/* Solar Radiation */}
+            <div className="space-y-1.5">
+              <div className="flex justify-between text-xs">
+                <span className="text-slate-300 font-medium flex items-center gap-1.5">
+                  <Sun className="w-3.5 h-3.5 text-amber-400" /> Solar Radiation
+                </span>
+                <span className="font-mono text-amber-400 font-bold">{solarRadiation} W/m²</span>
+              </div>
+              <input
+                type="range"
+                min={0}
+                max={1100}
+                step={25}
+                value={solarRadiation}
+                onChange={(e) => setSolarRadiation(parseInt(e.target.value, 10))}
+                className="w-full accent-amber-500 cursor-pointer"
+              />
+            </div>
+          </div>
+
+          {/* Action Button */}
+          <button
+            type="button"
+            onClick={handleCalculate}
+            disabled={loading}
+            className="w-full py-2.5 px-4 rounded-xl bg-gradient-to-r from-amber-500 to-orange-600 hover:from-amber-600 hover:to-orange-700 text-white font-semibold text-xs tracking-wide shadow-lg shadow-orange-500/20 flex items-center justify-center gap-2 transition active:scale-[0.99] disabled:opacity-50 cursor-pointer"
+          >
+            {loading ? (
+              <>
+                <RefreshCw className="w-4 h-4 animate-spin" />
+                Computing via pythermalcomfort (FastAPI)...
+              </>
+            ) : (
+              <>
+                <Activity className="w-4 h-4" />
+                Calculate Universal Thermal Climate Index (UTCI)
+              </>
+            )}
+          </button>
+
+          {/* Error Message */}
+          {error && (
+            <div className="p-3 rounded-lg bg-red-950/60 border border-red-500/40 text-red-300 text-xs flex items-center gap-2">
+              <AlertTriangle className="w-4 h-4 text-red-400 flex-shrink-0" />
+              <span>{error}</span>
+            </div>
+          )}
+
+          {/* Results Display */}
+          {result && (
+            <div className="space-y-4 animate-fadeIn">
+              <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
+                {/* UTCI Box */}
+                <div className="p-3.5 rounded-xl bg-slate-950 border border-slate-800 text-center">
+                  <span className="text-[10px] uppercase font-semibold text-slate-400 block mb-1">
+                    UTCI Index
+                  </span>
+                  <div className="text-2xl font-bold font-mono text-white">
+                    {result.utci}
+                    <span className="text-xs text-slate-400 font-normal">°C</span>
+                  </div>
+                  <span className="text-[10px] text-slate-400 block mt-0.5">
+                    Biometeorological
+                  </span>
+                </div>
+
+                {/* Heat Index Box */}
+                <div className="p-3.5 rounded-xl bg-slate-950 border border-slate-800 text-center">
+                  <span className="text-[10px] uppercase font-semibold text-slate-400 block mb-1">
+                    Heat Index (HI)
+                  </span>
+                  <div className="text-2xl font-bold font-mono text-amber-400">
+                    {result.heat_index}
+                    <span className="text-xs text-slate-400 font-normal">°C</span>
+                  </div>
+                  <span className="text-[10px] text-slate-400 block mt-0.5">
+                    Rothfusz Equation
+                  </span>
+                </div>
+
+                {/* Hazard Tier */}
+                <div className="p-3.5 rounded-xl bg-slate-950 border border-slate-800 text-center flex flex-col items-center justify-center">
+                  <span className="text-[10px] uppercase font-semibold text-slate-400 block mb-1">
+                    Hazard Tier
+                  </span>
+                  <span
+                    className="px-2.5 py-1 rounded-full text-xs font-bold uppercase tracking-wider text-white"
+                    style={{ backgroundColor: result.color_hex }}
+                  >
+                    {result.hazard_tier}
+                  </span>
+                  <span className="text-[10px] text-slate-400 block mt-1 capitalize">
+                    {result.stress_category}
+                  </span>
+                </div>
+
+                {/* Hospitalization Spike */}
+                <div className="p-3.5 rounded-xl bg-slate-950 border border-slate-800 text-center">
+                  <span className="text-[10px] uppercase font-semibold text-slate-400 block mb-1">
+                    Hospital Surge
+                  </span>
+                  <div className="text-2xl font-bold font-mono text-red-400">
+                    +{result.projected_hospitalization_spike}%
+                  </div>
+                  <span className="text-[10px] text-slate-400 block mt-0.5">
+                    Trauma Admissions
+                  </span>
+                </div>
+              </div>
+
+              {/* Public Advisory Card */}
+              <div
+                className="p-4 rounded-xl border space-y-1.5"
+                style={{
+                  backgroundColor: `${result.color_hex}15`,
+                  borderColor: `${result.color_hex}40`
+                }}
+              >
+                <div className="flex items-center gap-2">
+                  <ShieldCheck className="w-4 h-4" style={{ color: result.color_hex }} />
+                  <span className="text-xs font-bold text-white">{result.label}</span>
+                </div>
+                <p className="text-xs leading-relaxed text-slate-200">
+                  {result.advice}
+                </p>
+              </div>
+            </div>
+          )}
+        </div>
+
+        {/* Footer */}
+        <div className="px-6 py-3 border-t border-slate-800 bg-slate-950/70 flex items-center justify-between text-[11px] text-slate-400">
+          <span>Backend: <code className="text-slate-300 font-mono">POST /api/calculate-stress</code></span>
+          <button
+            onClick={() => setStressModalOpen(false)}
+            className="px-4 py-1.5 rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-200 font-medium transition cursor-pointer"
+          >
+            Close
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+};
