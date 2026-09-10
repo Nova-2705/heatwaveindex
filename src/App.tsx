@@ -6,6 +6,7 @@ import { ForecastSlider } from './components/Timeline/ForecastSlider';
 import { BroadcastModal } from './components/Modals/BroadcastModal';
 import { SitRepModal } from './components/Modals/SitRepModal';
 import { StressCalculatorModal } from './components/Modals/StressCalculatorModal';
+import { BroadcastToast } from './components/Notifications/BroadcastToast';
 
 export const App: React.FC = () => {
   return (
@@ -31,6 +32,9 @@ export const App: React.FC = () => {
       <BroadcastModal />
       <SitRepModal />
       <StressCalculatorModal />
+
+      {/* Real-Time Carrier Broadcast Toast Notification */}
+      <BroadcastToast />
     </div>
   );
 };

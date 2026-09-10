@@ -6,12 +6,21 @@ import {
   Home,
   HeartPulse,
   Phone,
-  ShieldAlert
+  ShieldAlert,
+  Activity,
+  Cpu,
+  Wind,
+  Sun,
+  RefreshCw,
+  Radio,
+  Loader2,
+  Flame
 } from 'lucide-react';
 import { useCommandCenterStore } from '../../store/useCommandCenterStore';
 import { MUNICIPAL_WARDS, RISK_COLORS, INFRASTRUCTURE_ASSETS } from '../../data/geoData';
 import { westBengalHeatGeoJSON, westBengalAssets } from '../../data/westBengalHeatData.js';
 import type { RiskTier } from '../../types';
+import { PredictiveSurgeChart } from './PredictiveSurgeChart';
 
 export const CommandCenterSidebar: React.FC = () => {
   const {
@@ -19,7 +28,12 @@ export const CommandCenterSidebar: React.FC = () => {
     closeWardInspector,
     selectedWardId,
     activeHour,
-    liveWardsGeoJSON
+    liveWardsGeoJSON,
+    activeWardTelemetry,
+    isFetchingWardTelemetry,
+    isBroadcasting,
+    triggerEmergencyBroadcast,
+    setStressModalOpen
   } = useCommandCenterStore();
 
   if (!isSidebarOpen || !selectedWardId) {
@@ -31,38 +45,77 @@ export const CommandCenterSidebar: React.FC = () => {
   const normalizedId = selectedWardId.replace('-', '_');
   const activeWard = MUNICIPAL_WARDS.find((w) => w.id === selectedWardId || w.id === normalizedId);
 
-  if (!wbFeature && !activeWard) return null;
+  if (!wbFeature && !activeWard && !activeWardTelemetry) return null;
 
   const dayIndex = Math.min(5, Math.floor(activeHour / 24) + 1);
   const dayKey = `day${dayIndex}` as 'day1' | 'day2' | 'day3' | 'day4' | 'day5';
 
-  const isWB = !!wbFeature;
-  const name = wbFeature ? wbFeature.properties.name : activeWard!.name;
-  const subTitle = wbFeature ? `${wbFeature.properties.id} • West Bengal Urban Heat Zone` : `Sector ${activeWard!.code} • ~${activeWard!.population.toLocaleString()} residents`;
+  const isWB = !!wbFeature || (activeWardTelemetry?.ward_id === selectedWardId);
+  const name = activeWardTelemetry?.name || (wbFeature ? wbFeature.properties.name : activeWard!.name);
+  const subTitle = activeWardTelemetry 
+    ? `${activeWardTelemetry.ward_id} • ${activeWardTelemetry.district}, West Bengal`
+    : (wbFeature ? `${wbFeature.properties.id} • West Bengal Urban Heat Zone` : `Sector ${activeWard!.code} • ~${activeWard!.population.toLocaleString()} residents`);
 
-  const wbDayForecast = wbFeature?.properties.forecasts[dayKey];
+  const wbDayForecast = wbFeature?.properties.forecasts?.[dayKey];
   const genericForecast = activeWard?.forecast[activeHour] || activeWard?.forecast[0];
 
-  const riskTier: RiskTier = (isWB ? (wbDayForecast?.level || 'moderate') : genericForecast!.riskTier) as RiskTier;
+  const hasLiveTelemetry = Boolean(
+    activeWardTelemetry && (activeWardTelemetry.ward_id === selectedWardId || wbFeature?.properties.id === activeWardTelemetry.ward_id)
+  );
+
+  const riskTier: RiskTier = (
+    hasLiveTelemetry
+      ? activeWardTelemetry!.thermal_comfort.risk_tier
+      : (isWB ? (wbDayForecast?.level || 'moderate') : genericForecast!.riskTier)
+  ) as RiskTier;
+
   const riskColor = RISK_COLORS[riskTier] || RISK_COLORS.moderate;
 
-  const displayTemp = isWB ? wbDayForecast?.temp : `${Math.round(genericForecast!.temp)}°C`;
-  const feelsLikeTemp = isWB ? `${parseInt(wbDayForecast?.temp || '35', 10) + 3}°C` : `${Math.round(genericForecast!.utci)}°C`;
-  const adviceText = isWB ? wbDayForecast?.advice : riskColor.advice;
-  const humidityVal = isWB ? (riskTier === 'severe' ? '68%' : '58%') : `${genericForecast!.humidity}%`;
+  const displayTemp = hasLiveTelemetry
+    ? `${activeWardTelemetry!.telemetry.air_temperature}°C`
+    : (isWB ? wbDayForecast?.temp : `${Math.round(genericForecast!.temp)}°C`);
+
+  const feelsLikeTemp = hasLiveTelemetry
+    ? `${activeWardTelemetry!.thermal_comfort.utci}°C`
+    : (isWB ? `${parseInt(wbDayForecast?.temp || '35', 10) + 3}°C` : `${Math.round(genericForecast!.utci)}°C`);
+
+  const adviceText = hasLiveTelemetry
+    ? activeWardTelemetry!.thermal_comfort.advice
+    : (isWB ? wbDayForecast?.advice : riskColor.advice);
+
+  const humidityVal = hasLiveTelemetry
+    ? `${activeWardTelemetry!.telemetry.relative_humidity}%`
+    : (isWB ? (riskTier === 'severe' ? '68%' : '58%') : `${genericForecast!.humidity}%`);
+
+  const windVal = hasLiveTelemetry
+    ? `${activeWardTelemetry!.telemetry.wind_speed} m/s`
+    : '2.1 m/s';
+
+  const solarVal = hasLiveTelemetry
+    ? `${activeWardTelemetry!.telemetry.solar_radiation} W/m²`
+    : '750 W/m²';
+
+  const heatIndexVal = hasLiveTelemetry
+    ? `${activeWardTelemetry!.thermal_comfort.heat_index}°C`
+    : (wbDayForecast?.peak_heat_index || displayTemp);
+
+  const surgeSpike = hasLiveTelemetry
+    ? activeWardTelemetry!.thermal_comfort.projected_hospitalization_spike
+    : (riskTier === 'severe' ? 75 : riskTier === 'high' ? 30 : 5);
 
   // Find nearby assets in this ward
   const coolingShelters = isWB 
-    ? westBengalAssets.filter((a) => a.wardId === wbFeature.properties.id && a.type === 'cooling_shelter')
+    ? westBengalAssets.filter((a) => (a.wardId === selectedWardId || a.wardId === wbFeature?.properties?.id) && a.type === 'cooling_shelter')
     : INFRASTRUCTURE_ASSETS.filter((a) => a.wardId === activeWard!.id && a.type === 'cooling_shelter');
 
   const waterStations = isWB
-    ? westBengalAssets.filter((a) => a.wardId === wbFeature.properties.id && a.type === 'hydration_station')
+    ? westBengalAssets.filter((a) => (a.wardId === selectedWardId || a.wardId === wbFeature?.properties?.id) && a.type === 'hydration_station')
     : INFRASTRUCTURE_ASSETS.filter((a) => a.wardId === activeWard!.id && a.type === 'hydration_station');
 
   const healthClinics = isWB
-    ? westBengalAssets.filter((a) => a.wardId === wbFeature.properties.id && (a.type === 'health_center' || a.type === 'hospital'))
+    ? westBengalAssets.filter((a) => (a.wardId === selectedWardId || a.wardId === wbFeature?.properties?.id) && (a.type === 'health_center' || a.type === 'hospital'))
     : INFRASTRUCTURE_ASSETS.filter((a) => a.wardId === activeWard!.id && (a.type === 'health_center' || a.type === 'hospital'));
+
 
   return (
     <aside className="w-full sm:w-88 md:w-96 max-w-full h-full bg-slate-900 border-l border-slate-800 flex flex-col z-20 select-none shadow-2xl backdrop-blur-md absolute sm:relative right-0 top-0">
@@ -130,7 +183,118 @@ export const CommandCenterSidebar: React.FC = () => {
           </div>
         </div>
 
-        {/* 2. Plain-English Safety Checklist */}
+        {/* 2. Live Microclimate Telemetry & pythermalcomfort Diagnostics */}
+        <div className="p-3.5 rounded-xl bg-slate-950/70 border border-slate-800/90 space-y-3">
+          <div className="flex items-center justify-between">
+            <div className="flex items-center gap-1.5">
+              <Activity className="w-4 h-4 text-cyan-400" />
+              <span className="text-xs font-bold uppercase tracking-wider text-slate-200">
+                Live Microclimate Telemetry
+              </span>
+            </div>
+            {hasLiveTelemetry ? (
+              <span className="text-[10px] font-mono px-2 py-0.5 rounded-full bg-emerald-950/80 text-emerald-400 border border-emerald-500/40 flex items-center gap-1">
+                <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-pulse" />
+                Live API
+              </span>
+            ) : isFetchingWardTelemetry ? (
+              <span className="text-[10px] font-mono px-2 py-0.5 rounded-full bg-cyan-950/80 text-cyan-400 border border-cyan-500/40 flex items-center gap-1">
+                <RefreshCw className="w-2.5 h-2.5 animate-spin" />
+                Fetching
+              </span>
+            ) : (
+              <span className="text-[10px] font-mono px-2 py-0.5 rounded-full bg-slate-800 text-slate-400 border border-slate-700">
+                Baseline
+              </span>
+            )}
+          </div>
+
+          <div className="grid grid-cols-2 gap-2 text-xs">
+            <div className="bg-slate-900/80 p-2 rounded-lg border border-slate-800/70">
+              <div className="flex items-center gap-1.5 text-[11px] text-slate-400 mb-0.5">
+                <Wind className="w-3 h-3 text-sky-400" />
+                <span>Wind Speed</span>
+              </div>
+              <div className="font-mono text-sm font-semibold text-slate-100">
+                {windVal}
+              </div>
+            </div>
+
+            <div className="bg-slate-900/80 p-2 rounded-lg border border-slate-800/70">
+              <div className="flex items-center gap-1.5 text-[11px] text-slate-400 mb-0.5">
+                <Sun className="w-3 h-3 text-amber-400" />
+                <span>Solar Radiation</span>
+              </div>
+              <div className="font-mono text-sm font-semibold text-slate-100">
+                {solarVal}
+              </div>
+            </div>
+
+            <div className="bg-slate-900/80 p-2 rounded-lg border border-slate-800/70">
+              <div className="flex items-center gap-1.5 text-[11px] text-slate-400 mb-0.5">
+                <Flame className="w-3 h-3 text-orange-400" />
+                <span>Heat Index</span>
+              </div>
+              <div className="font-mono text-sm font-semibold text-orange-300">
+                {heatIndexVal}
+              </div>
+            </div>
+
+            <div className="bg-slate-900/80 p-2 rounded-lg border border-slate-800/70">
+              <div className="flex items-center gap-1.5 text-[11px] text-slate-400 mb-0.5">
+                <HeartPulse className="w-3 h-3 text-red-400" />
+                <span>Hospital Spike</span>
+              </div>
+              <div className="font-mono text-sm font-semibold text-rose-300">
+                +{surgeSpike}% surge
+              </div>
+            </div>
+          </div>
+
+          {/* Action to open in Biometeorological Calculator modal */}
+          <button
+            type="button"
+            onClick={() => setStressModalOpen(true)}
+            className="w-full flex items-center justify-center gap-2 py-2 px-3 rounded-lg bg-gradient-to-r from-amber-500/20 via-orange-500/20 to-amber-500/20 hover:from-amber-500/30 hover:to-orange-500/30 border border-amber-500/40 text-amber-300 text-xs font-semibold shadow-sm transition active:scale-98 cursor-pointer"
+            title="Open live telemetry in pythermalcomfort stress calculator"
+          >
+            <Cpu className="w-3.5 h-3.5 text-amber-400" />
+            <span>Launch in Biometeorological Calculator</span>
+            <span className="text-[9px] uppercase px-1.5 py-0.2 rounded bg-amber-400/20 text-amber-200 font-mono">
+              pythermalcomfort
+            </span>
+          </button>
+
+          {/* Prominent Emergency Broadcast Action Button */}
+          <button
+            type="button"
+            disabled={isBroadcasting}
+            onClick={() => triggerEmergencyBroadcast(selectedWardId || undefined)}
+            className="w-full flex items-center justify-center gap-2 py-2.5 px-4 rounded-xl bg-gradient-to-r from-red-600 via-rose-600 to-red-600 hover:from-red-500 hover:to-rose-500 active:scale-98 text-white text-xs font-black tracking-wide uppercase shadow-lg shadow-red-950/60 border border-red-400/50 transition cursor-pointer disabled:opacity-60 disabled:cursor-not-allowed group"
+            title="Dispatch emergency SMS & WhatsApp alert to 42 ward field officers via Twilio & WhatsApp Gateway"
+          >
+            {isBroadcasting ? (
+              <>
+                <Loader2 className="w-4 h-4 animate-spin text-white flex-shrink-0" />
+                <span>Transmitting Broadcast...</span>
+              </>
+            ) : (
+              <>
+                <Radio className="w-4 h-4 text-white animate-pulse flex-shrink-0" />
+                <span>🚨 Broadcast Emergency Alert</span>
+              </>
+            )}
+          </button>
+        </div>
+
+        {/* 2. Predictive 5-Day Trend View (Trauma & Inpatient Surge) */}
+        <PredictiveSurgeChart
+          wardName={name}
+          forecasts={activeWardTelemetry?.forecasts || wbFeature?.properties?.forecasts}
+          hourlyForecast={activeWardTelemetry?.hourly_forecast}
+        />
+
+        {/* 3. Plain-English Safety Checklist */}
         <div className="space-y-2.5 bg-slate-950/60 p-3.5 rounded-xl border border-slate-800/80">
           <div className="text-xs font-bold uppercase tracking-wider text-slate-300 flex items-center gap-1.5">
             <CheckCircle2 className="w-4 h-4 text-emerald-400" />

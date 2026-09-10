@@ -4,10 +4,16 @@ Computes Universal Thermal Climate Index (UTCI) and Heat Index (HI),
 and maps them to standardized multi-tier heat hazard categories.
 """
 from typing import Optional, Dict, Any
-from pydantic import BaseModel, Field, ConfigDict
 import math
-from pythermalcomfort.models.utci import utci
-from pythermalcomfort.models.heat_index_rothfusz import heat_index_rothfusz
+from pydantic import BaseModel, Field, ConfigDict
+try:
+    from pythermalcomfort.models.utci import utci
+    from pythermalcomfort.models.heat_index_rothfusz import heat_index_rothfusz
+    HAS_PYTHERMALCOMFORT = True
+except ImportError:
+    HAS_PYTHERMALCOMFORT = False
+    utci = None
+    heat_index_rothfusz = None
 
 
 class StressCalculationRequest(BaseModel):
@@ -168,25 +174,32 @@ def calculate_thermal_stress(
         stress_cat = "heat stress"
 
     # 4. Calculate Heat Index via pythermalcomfort (Rothfusz equation)
-    try:
-        hi_result = heat_index_rothfusz(tdb=tdb, rh=rh)
-        hi_val = round(float(hi_result.hi), 1)
-    except Exception:
-        # Standard NOAA Heat Index approximation fallback
-        c1 = -8.78469475556
-        c2 = 1.61139411
-        c3 = 2.33854883889
-        c4 = -0.14611605
-        c5 = -0.012308094
-        c6 = -0.0164248277778
-        c7 = 0.002211732
-        c8 = 0.00072546
-        c9 = -0.000003582
-        t = tdb
-        r = rh
-        hi_calc = (c1 + (c2 * t) + (c3 * r) + (c4 * t * r) + (c5 * (t**2)) +
-                   (c6 * (r**2)) + (c7 * (t**2) * r) + (c8 * t * (r**2)) + (c9 * (t**2) * (r**2)))
-        hi_val = round(hi_calc, 1)
+    # NOAA standard: Heat Index is only applicable for temperatures >= 26.7°C (80°F).
+    # Below this threshold, ambient air temperature represents the heat index.
+    if tdb < 26.7:
+        hi_val = round(tdb, 1)
+    else:
+        try:
+            hi_result = heat_index_rothfusz(tdb=tdb, rh=rh)
+            val = float(hi_result.hi)
+            hi_val = round(val, 1) if not math.isnan(val) else round(tdb, 1)
+        except Exception:
+            # Standard NOAA Heat Index approximation fallback
+            c1 = -8.78469475556
+            c2 = 1.61139411
+            c3 = 2.33854883889
+            c4 = -0.14611605
+            c5 = -0.012308094
+            c6 = -0.0164248277778
+            c7 = 0.002211732
+            c8 = 0.00072546
+            c9 = -0.000003582
+            t = tdb
+            r = rh
+            hi_calc = (c1 + (c2 * t) + (c3 * r) + (c4 * t * r) + (c5 * (t**2)) +
+                       (c6 * (r**2)) + (c7 * (t**2) * r) + (c8 * t * (r**2)) + (c9 * (t**2) * (r**2)))
+            hi_val = round(hi_calc, 1)
+
 
     # 5. Classify into hazard tier
     classification = classify_hazard_tier(utci_val, hi_val)

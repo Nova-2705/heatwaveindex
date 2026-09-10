@@ -1,7 +1,21 @@
 import { create } from 'zustand';
 import type { LayerVisibility, RiskTier, AutomatedAlert } from '../types';
 import { SEED_ALERTS } from '../data/geoData';
-import { fetchWardsGeoJSON } from '../services/heatApi';
+import { fetchWardsGeoJSON, fetchWardLiveTelemetry, broadcastEmergencyAlert, type WardLiveTelemetryResponse } from '../services/heatApi';
+
+export interface BroadcastToastState {
+  id: string;
+  type: 'success' | 'loading' | 'error';
+  title: string;
+  message: string;
+  details?: {
+    ward_id?: string;
+    ward_name?: string;
+    recipients_count?: number;
+    channels?: string[];
+    timestamp?: string;
+  };
+}
 
 interface CommandCenterState {
   // Timeline State
@@ -27,6 +41,12 @@ interface CommandCenterState {
   isBroadcastModalOpen: boolean;
   isSitRepModalOpen: boolean;
 
+  // Emergency Broadcast Toast & Dispatch State
+  broadcastToast: BroadcastToastState | null;
+  isBroadcasting: boolean;
+  setBroadcastToast: (toast: BroadcastToastState | null) => void;
+  triggerEmergencyBroadcast: (targetWardId?: string) => Promise<void>;
+
   // Alert Log
   alerts: AutomatedAlert[];
 
@@ -35,6 +55,19 @@ interface CommandCenterState {
   backendConnected: boolean;
   isStressModalOpen: boolean;
   lastBackendSync: string | null;
+
+  // Live Ward Telemetry Click & Fetch State
+  isFetchingWardTelemetry: boolean;
+  fetchingWardName: string | null;
+  wardTelemetryError: string | null;
+  activeWardTelemetry: WardLiveTelemetryResponse | null;
+  calculatorPrefill: {
+    air_temp: number;
+    humidity: number;
+    wind_speed: number;
+    solar_radiation: number;
+    ward_name?: string;
+  } | null;
 
   // Actions
   setActiveHour: (hour: number) => void;
@@ -45,6 +78,8 @@ interface CommandCenterState {
 
   selectRegion: (regionId: string | null) => void;
   selectWard: (wardId: string | null) => void;
+  fetchAndInspectWard: (wardId: string, openMode?: 'sidebar' | 'modal' | 'both') => Promise<void>;
+  setCalculatorPrefill: (prefill: { air_temp: number; humidity: number; wind_speed: number; solar_radiation: number; ward_name?: string } | null) => void;
   closeWardInspector: () => void;
   resetToMacroView: () => void;
 
@@ -93,13 +128,19 @@ export const useCommandCenterStore = create<CommandCenterState>((set, get) => ({
   isBroadcastModalOpen: false,
   isSitRepModalOpen: false,
   isStressModalOpen: false,
+  broadcastToast: null,
+  isBroadcasting: false,
 
   liveWardsGeoJSON: null,
   backendConnected: false,
   lastBackendSync: null,
   alerts: SEED_ALERTS,
 
-
+  isFetchingWardTelemetry: false,
+  fetchingWardName: null,
+  wardTelemetryError: null,
+  activeWardTelemetry: null,
+  calculatorPrefill: null,
 
   setActiveHour: (hour) => {
     const clamped = Math.max(0, Math.min(119, hour));
@@ -130,6 +171,59 @@ export const useCommandCenterStore = create<CommandCenterState>((set, get) => ({
       selectedWardId: wardId,
       isSidebarOpen: Boolean(wardId)
     });
+    if (wardId) {
+      get().fetchAndInspectWard(wardId, 'sidebar');
+    }
+  },
+
+  setCalculatorPrefill: (prefill) => {
+    set({ calculatorPrefill: prefill });
+  },
+
+  fetchAndInspectWard: async (wardId: string, openMode: 'sidebar' | 'modal' | 'both' = 'sidebar') => {
+    const { activeHour, liveWardsGeoJSON } = get();
+    
+    // Find initial friendly name from loaded GeoJSON features
+    let friendlyName = wardId;
+    if (liveWardsGeoJSON?.features) {
+      const match = liveWardsGeoJSON.features.find((f: any) => f.properties?.id === wardId);
+      if (match?.properties?.name) {
+        friendlyName = match.properties.name;
+      }
+    }
+
+    set({
+      selectedWardId: wardId,
+      isFetchingWardTelemetry: true,
+      fetchingWardName: friendlyName,
+      wardTelemetryError: null,
+      isSidebarOpen: openMode === 'sidebar' || openMode === 'both',
+      isStressModalOpen: openMode === 'modal' ? true : get().isStressModalOpen
+    });
+
+    try {
+      const telemetry = await fetchWardLiveTelemetry(wardId, activeHour);
+      set({
+        activeWardTelemetry: telemetry,
+        backendConnected: true,
+        lastBackendSync: new Date().toLocaleTimeString(),
+        calculatorPrefill: {
+          air_temp: telemetry.telemetry.air_temperature,
+          humidity: telemetry.telemetry.relative_humidity,
+          wind_speed: telemetry.telemetry.wind_speed,
+          solar_radiation: telemetry.telemetry.solar_radiation,
+          ward_name: telemetry.name
+        },
+        isStressModalOpen: openMode === 'modal' || openMode === 'both' ? true : get().isStressModalOpen
+      });
+    } catch (err: any) {
+      console.warn(`[HeatWaveGIS] Error fetching live telemetry for ${wardId}:`, err);
+      set({
+        wardTelemetryError: err?.message || 'Microclimate sensor sync timeout - serving cached profile',
+      });
+    } finally {
+      set({ isFetchingWardTelemetry: false });
+    }
   },
 
   closeWardInspector: () => {
@@ -182,6 +276,86 @@ export const useCommandCenterStore = create<CommandCenterState>((set, get) => ({
     } catch (err) {
       console.warn('Backend sync failed, falling back to local dataset', err);
       set({ backendConnected: false });
+    }
+  },
+
+  setBroadcastToast: (toast) => set({ broadcastToast: toast }),
+
+  triggerEmergencyBroadcast: async (targetWardId?: string) => {
+    const { selectedWardId, liveWardsGeoJSON, activeWardTelemetry } = get();
+    const wardId = targetWardId || selectedWardId || 'WB-KOL-01';
+    
+    // Find friendly name
+    let wardName = 'West Bengal Sector';
+    if (activeWardTelemetry?.name && activeWardTelemetry.ward_id === wardId) {
+      wardName = activeWardTelemetry.name;
+    } else if (liveWardsGeoJSON?.features) {
+      const match = liveWardsGeoJSON.features.find((f: any) => f.properties?.id === wardId);
+      if (match?.properties?.name) {
+        wardName = match.properties.name;
+      }
+    }
+
+    set({
+      isBroadcasting: true,
+      broadcastToast: {
+        id: `toast_loading_${Date.now()}`,
+        type: 'loading',
+        title: 'TRANSMITTING EMERGENCY DIRECTIVE...',
+        message: `Connecting to Twilio & WhatsApp Gateway for ${wardName}...`
+      }
+    });
+
+    try {
+      const payload = {
+        ward_id: wardId,
+        ward_name: wardName,
+        risk_tier: activeWardTelemetry?.thermal_comfort?.risk_tier || 'severe',
+        air_temperature: activeWardTelemetry?.telemetry?.air_temperature || 42.0,
+        relative_humidity: activeWardTelemetry?.telemetry?.relative_humidity || 65,
+        utci: activeWardTelemetry?.thermal_comfort?.utci || 50.5,
+        heat_index: activeWardTelemetry?.thermal_comfort?.heat_index || 56.0,
+        projected_hospitalization_spike: activeWardTelemetry?.thermal_comfort?.projected_hospitalization_spike || 250,
+        phone_number: '+919836262900',
+        channels: ['whatsapp', 'sms']
+      };
+
+      const result = await broadcastEmergencyAlert(payload);
+
+      // Add to alert log
+      get().dispatchEmergencyBroadcast(
+        `🚨 EMERGENCY BROADCAST: ${result.ward_name.toUpperCase()}`,
+        result.message,
+        `Dispatched via ${result.gateway} to ${result.recipients_count} field officers.`
+      );
+
+      set({
+        isBroadcasting: false,
+        broadcastToast: {
+          id: result.broadcast_id,
+          type: 'success',
+          title: '🚨 EMERGENCY DIRECTIVE DISPATCHED',
+          message: result.confirmation || `SMS & WhatsApp alert successfully dispatched to ${result.recipients_count} ward field officers via Twilio/WhatsApp Gateway`,
+          details: {
+            ward_id: result.ward_id,
+            ward_name: result.ward_name,
+            recipients_count: result.recipients_count,
+            channels: result.channels,
+            timestamp: result.transmission_timestamp
+          }
+        }
+      });
+    } catch (err: any) {
+      console.error('Failed to dispatch broadcast alert:', err);
+      set({
+        isBroadcasting: false,
+        broadcastToast: {
+          id: `toast_err_${Date.now()}`,
+          type: 'error',
+          title: 'BROADCAST TRANSMISSION FAILED',
+          message: err?.message || 'Network error communicating with emergency dispatch gateway.'
+        }
+      });
     }
   },
 

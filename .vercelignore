@@ -1,0 +1,9 @@
+# Caches and tests
+__pycache__/
+*.pyc
+test_backend.py
+generate_wb_data.py
+
+# Secrets and local files (use Vercel dashboard for env vars)
+.env
+.env.*

@@ -1,10 +1,10 @@
-import React, { useState } from 'react';
-import { X, Activity, Flame, Wind, Droplets, Sun, AlertTriangle, ShieldCheck, RefreshCw, Cpu } from 'lucide-react';
+import React, { useState, useEffect } from 'react';
+import { X, Activity, Flame, Wind, Droplets, Sun, AlertTriangle, ShieldCheck, RefreshCw, Cpu, Sparkles } from 'lucide-react';
 import { useCommandCenterStore } from '../../store/useCommandCenterStore';
 import { calculateThermalStress, type StressCalculationResult } from '../../services/heatApi';
 
 export const StressCalculatorModal: React.FC = () => {
-  const { isStressModalOpen, setStressModalOpen } = useCommandCenterStore();
+  const { isStressModalOpen, setStressModalOpen, calculatorPrefill, setCalculatorPrefill } = useCommandCenterStore();
 
   const [airTemp, setAirTemp] = useState<number>(39.5);
   const [humidity, setHumidity] = useState<number>(65);
@@ -13,6 +13,28 @@ export const StressCalculatorModal: React.FC = () => {
   const [loading, setLoading] = useState<boolean>(false);
   const [result, setResult] = useState<StressCalculationResult | null>(null);
   const [error, setError] = useState<string | null>(null);
+
+  // Auto-sync whenever modal opens with prefilled ward telemetry
+  useEffect(() => {
+    if (isStressModalOpen && calculatorPrefill) {
+      setAirTemp(calculatorPrefill.air_temp);
+      setHumidity(calculatorPrefill.humidity);
+      setWindSpeed(calculatorPrefill.wind_speed);
+      setSolarRadiation(calculatorPrefill.solar_radiation);
+
+      setLoading(true);
+      calculateThermalStress({
+        air_temperature: calculatorPrefill.air_temp,
+        relative_humidity: calculatorPrefill.humidity,
+        wind_speed: calculatorPrefill.wind_speed,
+        wind_speed_unit: 'm/s',
+        solar_radiation: calculatorPrefill.solar_radiation,
+      })
+        .then((res) => setResult(res))
+        .catch(() => {})
+        .finally(() => setLoading(false));
+    }
+  }, [isStressModalOpen, calculatorPrefill]);
 
   if (!isStressModalOpen) return null;
 
@@ -72,6 +94,7 @@ export const StressCalculatorModal: React.FC = () => {
     setSolarRadiation(s);
   };
 
+
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/75 backdrop-blur-sm animate-fadeIn">
       <div className="bg-slate-900 border border-slate-700/80 rounded-2xl w-full max-w-2xl overflow-hidden shadow-2xl flex flex-col max-h-[90vh]">
@@ -103,46 +126,101 @@ export const StressCalculatorModal: React.FC = () => {
 
         {/* Content Body */}
         <div className="p-6 overflow-y-auto space-y-6 flex-1">
+          {/* Active Ward Telemetry Sync Banner */}
+          {calculatorPrefill && (
+            <div className="flex items-center justify-between p-3 rounded-xl bg-cyan-950/50 border border-cyan-500/40 text-xs shadow-sm">
+              <div className="flex items-center gap-2 text-cyan-200">
+                <Sparkles className="w-4 h-4 text-cyan-400 flex-shrink-0 animate-pulse" />
+                <span>
+                  Active Telemetry Sync: <strong className="text-white font-semibold">{calculatorPrefill.ward_name || 'Selected Ward'}</strong>
+                </span>
+                <span className="text-[10px] font-mono px-2 py-0.2 rounded bg-cyan-900/80 text-cyan-300 border border-cyan-500/30">
+                  Live Sensor Values
+                </span>
+              </div>
+              <button
+                type="button"
+                onClick={() => setCalculatorPrefill(null)}
+                className="text-[11px] text-cyan-400 hover:text-cyan-200 underline cursor-pointer"
+              >
+                Clear sync
+              </button>
+            </div>
+          )}
+
           {/* Presets */}
           <div>
             <span className="text-xs font-semibold text-slate-400 uppercase tracking-wider block mb-2">
-              Regional Climate Presets
+              West Bengal Regional Microclimate Presets
             </span>
             <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
               <button
                 type="button"
                 onClick={() => applyPreset(39.0, 72, 1.5, 850)}
-                className="px-2.5 py-1.5 rounded-lg bg-slate-800/80 hover:bg-slate-700 text-[11px] font-medium text-slate-200 border border-slate-700 text-left transition"
+                className="px-2.5 py-1.5 rounded-lg bg-slate-800/80 hover:bg-slate-700 text-[11px] font-medium text-slate-200 border border-slate-700 text-left transition cursor-pointer"
               >
                 🌊 Kolkata Peak
-                <span className="block text-[10px] text-slate-400">39°C • 72% RH</span>
+                <span className="block text-[10px] text-slate-400">39°C • 72% RH • Delta UHI</span>
               </button>
               <button
                 type="button"
                 onClick={() => applyPreset(44.5, 24, 2.8, 980)}
-                className="px-2.5 py-1.5 rounded-lg bg-slate-800/80 hover:bg-slate-700 text-[11px] font-medium text-slate-200 border border-slate-700 text-left transition"
+                className="px-2.5 py-1.5 rounded-lg bg-slate-800/80 hover:bg-slate-700 text-[11px] font-medium text-slate-200 border border-slate-700 text-left transition cursor-pointer"
               >
                 ☀️ Asansol Mining
-                <span className="block text-[10px] text-slate-400">44.5°C • 24% RH</span>
+                <span className="block text-[10px] text-slate-400">44.5°C • 24% RH • Dry Rock</span>
+              </button>
+              <button
+                type="button"
+                onClick={() => applyPreset(46.0, 18, 3.2, 1020)}
+                className="px-2.5 py-1.5 rounded-lg bg-slate-800/80 hover:bg-slate-700 text-[11px] font-medium text-slate-200 border border-slate-700 text-left transition cursor-pointer"
+              >
+                🏜️ Purulia Arid
+                <span className="block text-[10px] text-slate-400">46°C • 18% RH • Plateau Loo</span>
+              </button>
+              <button
+                type="button"
+                onClick={() => applyPreset(43.0, 32, 2.0, 900)}
+                className="px-2.5 py-1.5 rounded-lg bg-slate-800/80 hover:bg-slate-700 text-[11px] font-medium text-slate-200 border border-slate-700 text-left transition cursor-pointer"
+              >
+                ⚙️ Durgapur Steel
+                <span className="block text-[10px] text-slate-400">43°C • 32% RH • Industry</span>
+              </button>
+              <button
+                type="button"
+                onClick={() => applyPreset(37.0, 78, 1.6, 780)}
+                className="px-2.5 py-1.5 rounded-lg bg-slate-800/80 hover:bg-slate-700 text-[11px] font-medium text-slate-200 border border-slate-700 text-left transition cursor-pointer"
+              >
+                🌲 Siliguri Terai
+                <span className="block text-[10px] text-slate-400">37°C • 78% RH • Sub-Himalayan</span>
+              </button>
+              <button
+                type="button"
+                onClick={() => applyPreset(42.0, 45, 2.2, 880)}
+                className="px-2.5 py-1.5 rounded-lg bg-slate-800/80 hover:bg-slate-700 text-[11px] font-medium text-slate-200 border border-slate-700 text-left transition cursor-pointer"
+              >
+                🚆 Kharagpur Jn.
+                <span className="block text-[10px] text-slate-400">42°C • 45% RH • Junction</span>
               </button>
               <button
                 type="button"
                 onClick={() => applyPreset(41.0, 64, 1.2, 800)}
-                className="px-2.5 py-1.5 rounded-lg bg-slate-800/80 hover:bg-slate-700 text-[11px] font-medium text-slate-200 border border-slate-700 text-left transition"
+                className="px-2.5 py-1.5 rounded-lg bg-slate-800/80 hover:bg-slate-700 text-[11px] font-medium text-slate-200 border border-slate-700 text-left transition cursor-pointer"
               >
                 🏭 Howrah Industry
-                <span className="block text-[10px] text-slate-400">41°C • 64% RH</span>
+                <span className="block text-[10px] text-slate-400">41°C • 64% RH • Rail Mass</span>
               </button>
               <button
                 type="button"
-                onClick={() => applyPreset(27.0, 45, 3.2, 150)}
-                className="px-2.5 py-1.5 rounded-lg bg-slate-800/80 hover:bg-slate-700 text-[11px] font-medium text-slate-200 border border-slate-700 text-left transition"
+                onClick={() => applyPreset(24.0, 65, 3.0, 400)}
+                className="px-2.5 py-1.5 rounded-lg bg-slate-800/80 hover:bg-slate-700 text-[11px] font-medium text-slate-200 border border-slate-700 text-left transition cursor-pointer"
               >
-                🍃 Safe Conditions
-                <span className="block text-[10px] text-slate-400">27°C • 45% RH</span>
+                ⛰️ Darjeeling Alpine
+                <span className="block text-[10px] text-slate-400">24°C • 65% RH • High UV</span>
               </button>
             </div>
           </div>
+
 
           {/* Environmental Parameter Controls */}
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 bg-slate-950/50 p-4 rounded-xl border border-slate-800/80">

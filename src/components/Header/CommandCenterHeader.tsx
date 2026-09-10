@@ -7,7 +7,8 @@ import {
   Radio,
   Server,
   Menu,
-  X
+  X,
+  Loader2
 } from 'lucide-react';
 import { useCommandCenterStore } from '../../store/useCommandCenterStore';
 import { westBengalHeatGeoJSON } from '../../data/westBengalHeatData.js';
@@ -16,12 +17,15 @@ export const CommandCenterHeader: React.FC = () => {
   const {
     activeHour,
     selectedRegionId,
+    selectedWardId,
     selectRegion,
     selectWard,
     liveWardsGeoJSON,
     backendConnected,
     refreshWardsFromBackend,
-    setStressModalOpen
+    setStressModalOpen,
+    isBroadcasting,
+    triggerEmergencyBroadcast
   } = useCommandCenterStore();
 
   const [isMobileMenuOpen, setIsMobileMenuOpen] = useState(false);
@@ -111,6 +115,27 @@ export const CommandCenterHeader: React.FC = () => {
             <span className="text-[9px] uppercase px-1.5 py-0.2 rounded bg-amber-400/20 text-amber-200 font-mono">
               pythermalcomfort
             </span>
+          </button>
+
+          {/* Prominent Header Broadcast Alert Button */}
+          <button
+            type="button"
+            disabled={isBroadcasting}
+            onClick={() => triggerEmergencyBroadcast(selectedWardId || undefined)}
+            className="flex items-center gap-1.5 px-3.5 py-1 rounded-full bg-gradient-to-r from-red-600 to-rose-600 hover:from-red-500 hover:to-rose-500 active:scale-95 text-white text-xs font-bold shadow-md shadow-red-950/50 border border-red-400/60 transition cursor-pointer disabled:opacity-60 disabled:cursor-not-allowed"
+            title="Dispatch emergency SMS & WhatsApp alert to 42 ward field officers via Twilio & WhatsApp Gateway"
+          >
+            {isBroadcasting ? (
+              <>
+                <Loader2 className="w-3.5 h-3.5 animate-spin text-white" />
+                <span>Transmitting...</span>
+              </>
+            ) : (
+              <>
+                <Radio className="w-3.5 h-3.5 text-white animate-pulse" />
+                <span>🚨 Broadcast Emergency Alert</span>
+              </>
+            )}
           </button>
         </div>
 

@@ -200,6 +200,79 @@ class ForecastStore:
             return None
         return self.ward_forecasts[ward_id]
 
+    def get_ward_live_telemetry(self, ward_query: str, hour_index: Optional[int] = None) -> Optional[Dict[str, Any]]:
+        """
+        Dynamically lookup and evaluate live microclimate telemetry for a specific ward.
+        Runs current conditions through pythermalcomfort via calculate_thermal_stress to return:
+        - Air Temperature, Relative Humidity, Wind Speed, Solar Radiation, Mean Radiant Temperature
+        - pythermalcomfort UTCI, Heat Index, WBGT, Hazard Tier, and projected hospital surges.
+        """
+        ward_id = resolve_ward_id(ward_query)
+        forecast_record = self.get_ward_forecast(ward_id)
+        if not forecast_record:
+            return None
+
+        # Determine target hour index (default to 38: Day 2 peak heatwave or current active hour)
+        h = 38 if hour_index is None else max(0, min(119, hour_index))
+        hourly_data = forecast_record["hourly_forecast"][h]
+
+        # Extract current microclimate readings
+        t_air = hourly_data["temp"]
+        rh = float(hourly_data["humidity"])
+        ws_kmh = hourly_data["windSpeed"]
+        ws_ms = round(ws_kmh / 3.6, 2)
+        sol_rad = float(hourly_data["solarRadiation"])
+        mrt = round(t_air + (0.015 * sol_rad), 1)
+
+        # Run through pythermalcomfort
+        stress_eval = calculate_thermal_stress(
+            air_temperature=t_air,
+            relative_humidity=rh,
+            wind_speed=ws_ms,
+            wind_speed_unit="m/s",
+            solar_radiation=sol_rad,
+            mean_radiant_temperature=mrt
+        )
+
+        return {
+            "ward_id": ward_id,
+            "name": forecast_record["name"],
+            "district": forecast_record["district"],
+            "state": forecast_record["state"],
+            "center": forecast_record["center"],
+            "area_km2": forecast_record["area_km2"],
+            "population": forecast_record["population"],
+            "vulnerability": forecast_record["vulnerability"],
+            "hour_index": h,
+            "timestamp": hourly_data["timestamp"],
+            "telemetry": {
+                "air_temperature": t_air,
+                "relative_humidity": int(rh),
+                "wind_speed": ws_ms,
+                "wind_speed_kmh": ws_kmh,
+                "wind_speed_unit": "m/s",
+                "solar_radiation": int(sol_rad),
+                "mean_radiant_temperature": mrt
+            },
+            "thermal_comfort": {
+                "utci": stress_eval["utci"],
+                "heat_index": stress_eval["heat_index"],
+                "wbgt": hourly_data["wbgt"],
+                "hazard_tier": stress_eval["hazard_tier"],
+                "risk_tier": stress_eval["risk_tier"],
+                "label": stress_eval["label"],
+                "advice": stress_eval["advice"],
+                "projected_hospitalization_spike": stress_eval["projected_hospitalization_spike"],
+                "stress_category": stress_eval["stress_category"],
+                "color_hex": stress_eval["color_hex"]
+            },
+            "forecasts": forecast_record["forecasts"],
+            "hourly_forecast": forecast_record["hourly_forecast"],
+            "assets": forecast_record.get("assets", []),
+            "last_simulated_at": forecast_record.get("last_simulated_at", self.last_updated.isoformat())
+        }
+
+
     def get_geojson_collection(self) -> Dict[str, Any]:
         """
         Generate West Bengal FeatureCollection with multi-temporal risk attributes
@@ -211,12 +284,13 @@ class ForecastStore:
             if not f_data:
                 f_data = self.regenerate_ward_forecast(ward_id)
 
+            geometry = meta.get("geometry") or {
+                "type": "Polygon",
+                "coordinates": [meta["polygon"]]
+            }
             feature = {
                 "type": "Feature",
-                "geometry": {
-                    "type": "Polygon",
-                    "coordinates": [meta["polygon"]]
-                },
+                "geometry": geometry,
                 "properties": {
                     "id": ward_id,
                     "name": meta["name"],

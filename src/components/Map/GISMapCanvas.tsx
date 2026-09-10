@@ -1,6 +1,6 @@
 import React, { useEffect, useRef, useState } from 'react';
 import L from 'leaflet';
-import { Info, X } from 'lucide-react';
+import { Info, X, RefreshCw, AlertTriangle, Maximize2 } from 'lucide-react';
 import { useCommandCenterStore } from '../../store/useCommandCenterStore';
 import { westBengalHeatGeoJSON, westBengalAssets } from '../../data/westBengalHeatData.js';
 import type { InfrastructureAsset } from '../../types';
@@ -58,7 +58,11 @@ export const GISMapCanvas: React.FC = () => {
   const geoJsonLayerGroupRef = useRef<L.LayerGroup | null>(null);
   const assetLayerGroupRef = useRef<L.LayerGroup | null>(null);
 
+  const prevSelectedWardIdRef = useRef<string | null>(null);
+  const prevSelectedRegionIdRef = useRef<string | null>('west_bengal');
+
   const [isLegendOpen, setIsLegendOpen] = useState(false);
+
 
   const {
     activeHour,
@@ -66,6 +70,10 @@ export const GISMapCanvas: React.FC = () => {
     selectedWardId,
     layers,
     selectWard,
+    fetchAndInspectWard,
+    isFetchingWardTelemetry,
+    fetchingWardName,
+    wardTelemetryError,
     liveWardsGeoJSON
   } = useCommandCenterStore();
 
@@ -170,8 +178,8 @@ export const GISMapCanvas: React.FC = () => {
         return {
           fillColor: riskStyle.fillColor,
           color: isSelected ? '#ffffff' : riskStyle.color,
-          weight: isSelected ? 3 : 2,
-          fillOpacity: isSelected ? 0.48 : 0.35,
+          weight: isSelected ? 3 : 1.5,
+          fillOpacity: isSelected ? 0.65 : 0.45,
         };
       },
       onEachFeature: (feature: any, layer: L.Layer) => {
@@ -181,9 +189,9 @@ export const GISMapCanvas: React.FC = () => {
         const level = forecast?.level || 'low';
         const riskStyle = getGeoJsonRiskStyle(level);
 
-        // 3. Minimalist Click Popup with Localized Context-Aware Advice
+        // 3. Minimalist Click Popup with Localized Context-Aware Advice & Actions
         const popupContent = `
-          <div style="font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; padding: 4px 6px; min-width: 210px; max-width: 270px; color: #f8fafc;">
+          <div style="font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; padding: 4px 6px; min-width: 230px; max-width: 290px; color: #f8fafc;">
             <div style="font-size: 14px; font-weight: 700; color: #ffffff; margin-bottom: 5px;">${props.name}</div>
             <div style="display: inline-flex; align-items: center; gap: 5px; padding: 2px 9px; border-radius: 9999px; font-size: 11px; font-weight: 600; margin-bottom: 7px; background-color: ${riskStyle.badgeBg}; color: ${riskStyle.badgeText}; border: 1px solid ${riskStyle.badgeBorder};">
               <span style="width: 6px; height: 6px; border-radius: 9999px; background-color: ${riskStyle.fillColor}; display: inline-block;"></span>
@@ -194,6 +202,14 @@ export const GISMapCanvas: React.FC = () => {
             </div>
             <div style="font-size: 11px; color: #94a3b8; line-height: 1.4; padding-top: 6px; border-top: 1px solid #334155;">
               💡 ${forecast.advice}
+            </div>
+            <div style="margin-top: 8px; padding-top: 8px; border-top: 1px solid #334155; display: flex; gap: 6px;">
+              <button id="btn-inspect-${props.id}" style="flex: 1; background: rgba(30, 41, 59, 0.9); border: 1px solid rgba(148, 163, 184, 0.3); color: #cbd5e1; border-radius: 6px; padding: 4px 8px; font-size: 10px; cursor: pointer; font-weight: 600; transition: all 0.2s;">
+                Live Telemetry
+              </button>
+              <button id="btn-calc-${props.id}" style="flex: 1; background: rgba(245, 158, 11, 0.15); border: 1px solid rgba(245, 158, 11, 0.4); color: #fde68a; border-radius: 6px; padding: 4px 8px; font-size: 10px; cursor: pointer; font-weight: 600; transition: all 0.2s;">
+                Thermal Tool ⚡
+              </button>
             </div>
           </div>
         `;
@@ -211,20 +227,38 @@ export const GISMapCanvas: React.FC = () => {
             <div class="font-bold text-white">${props.name}</div>
             <div class="text-xs font-semibold" style="color: ${riskStyle.fillColor}">${forecast.label} • ${forecast.temp}</div>
             <div class="text-[11px] text-slate-300">${forecast.advice}</div>
+            <div class="text-[10px] text-cyan-300">Click to fetch live microclimate telemetry</div>
           </div>
           `,
           { sticky: true, className: 'leaflet-popup-content-wrapper' }
         );
 
         layer.on('click', () => {
-          selectWard(props.id);
+          fetchAndInspectWard(props.id, 'sidebar');
+        });
+
+        layer.on('popupopen', () => {
+          const inspectBtn = document.getElementById(`btn-inspect-${props.id}`);
+          if (inspectBtn) {
+            inspectBtn.onclick = (e) => {
+              e.stopPropagation();
+              fetchAndInspectWard(props.id, 'sidebar');
+            };
+          }
+          const calcBtn = document.getElementById(`btn-calc-${props.id}`);
+          if (calcBtn) {
+            calcBtn.onclick = (e) => {
+              e.stopPropagation();
+              fetchAndInspectWard(props.id, 'modal');
+            };
+          }
         });
 
         layer.on('mouseover', () => {
           if ('setStyle' in layer) {
             (layer as any).setStyle({
-              weight: 3,
-              fillOpacity: 0.52,
+              weight: 2.5,
+              fillOpacity: 0.65,
               color: '#ffffff',
             });
           }
@@ -234,8 +268,8 @@ export const GISMapCanvas: React.FC = () => {
           if ('setStyle' in layer) {
             const isSelected = selectedWardId === props.id;
             (layer as any).setStyle({
-              weight: isSelected ? 3 : 2,
-              fillOpacity: isSelected ? 0.48 : 0.35,
+              weight: isSelected ? 3 : 1.5,
+              fillOpacity: isSelected ? 0.65 : 0.45,
               color: isSelected ? '#ffffff' : riskStyle.color,
             });
           }
@@ -244,7 +278,8 @@ export const GISMapCanvas: React.FC = () => {
     });
 
     geoJsonLayerGroupRef.current.addLayer(geoJsonLayer);
-  }, [activeHour, selectedWardId, selectWard, activeGeoJSON]);
+  }, [activeHour, selectedWardId, selectWard, fetchAndInspectWard, activeGeoJSON]);
+
 
   // 3. Render Minimalist Infrastructure Asset Badges for West Bengal
   useEffect(() => {
@@ -345,34 +380,57 @@ export const GISMapCanvas: React.FC = () => {
     });
   }, [layers]);
 
-  // FlyTo on selected region / ward
+  // FlyTo on selected region / ward - strictly triggers only on explicit user selection changes
   useEffect(() => {
     const map = mapInstanceRef.current;
     if (!map) return;
 
-    if (!selectedWardId || selectedRegionId === 'west_bengal') {
-      try {
-        const bounds = L.geoJSON(activeGeoJSON as any).getBounds();
-        if (bounds.isValid()) {
-          map.fitBounds(bounds, { padding: [40, 40], maxZoom: 10 });
-        }
-      } catch {
-        // Fallback
-      }
-    } else if (selectedWardId) {
+    const wardChanged = prevSelectedWardIdRef.current !== selectedWardId;
+    const regionChanged = prevSelectedRegionIdRef.current !== selectedRegionId;
+
+    // Only pan/fit if an explicit user selection changed
+    if (wardChanged && selectedWardId) {
       const feature = activeGeoJSON.features.find((f: any) => f.properties.id === selectedWardId);
       if (feature) {
         try {
           const bounds = L.geoJSON(feature as any).getBounds();
           if (bounds.isValid()) {
-            map.fitBounds(bounds, { padding: [50, 50], maxZoom: 13 });
+            map.fitBounds(bounds, { padding: [60, 60], maxZoom: 13, animate: true });
           }
         } catch {
           // Fallback
         }
       }
+    } else if (regionChanged && selectedRegionId === 'west_bengal' && !selectedWardId && prevSelectedRegionIdRef.current !== null) {
+      // User explicitly clicked or selected 'West Bengal - All Wards'
+      try {
+        const bounds = L.geoJSON(activeGeoJSON as any).getBounds();
+        if (bounds.isValid()) {
+          map.fitBounds(bounds, { padding: [40, 40], maxZoom: 10, animate: true });
+        }
+      } catch {
+        // Fallback
+      }
     }
-  }, [selectedRegionId, selectedWardId, activeGeoJSON]);
+
+    prevSelectedWardIdRef.current = selectedWardId;
+    prevSelectedRegionIdRef.current = selectedRegionId;
+  }, [selectedRegionId, selectedWardId]);
+
+  // Handler for explicit manual "Fit State" button
+  const handleResetStateView = () => {
+    const map = mapInstanceRef.current;
+    if (!map) return;
+    try {
+      const bounds = L.geoJSON(activeGeoJSON as any).getBounds();
+      if (bounds.isValid()) {
+        map.fitBounds(bounds, { padding: [40, 40], maxZoom: 10, animate: true });
+      }
+    } catch {
+      // Fallback
+    }
+  };
+
 
   return (
     <div className="relative w-full h-full overflow-hidden bg-[#0b0f19]">
@@ -390,6 +448,39 @@ export const GISMapCanvas: React.FC = () => {
           </span>
         </div>
       </div>
+
+      {/* Top-Center: Interactive Telemetry Click-and-Fetch Loading Badge */}
+      {isFetchingWardTelemetry && (
+        <div className="absolute top-2 sm:top-3 left-1/2 -translate-x-1/2 z-30 pointer-events-none animate-fadeIn">
+          <div className="flex items-center gap-2 sm:gap-2.5 px-3.5 sm:px-4 py-1.5 sm:py-2 rounded-full bg-slate-900/95 backdrop-blur-md border border-cyan-500/60 text-xs shadow-2xl shadow-cyan-950/80">
+            <RefreshCw className="w-3.5 h-3.5 text-cyan-400 animate-spin flex-shrink-0" />
+            <span className="text-slate-300 font-normal hidden sm:inline">
+              Fetching microclimate telemetry:
+            </span>
+            <span className="text-slate-300 font-normal sm:hidden">
+              Fetching:
+            </span>
+            <span className="text-cyan-300 font-bold truncate max-w-[140px] sm:max-w-[220px]">
+              {fetchingWardName || selectedWardId}
+            </span>
+            <span className="text-[10px] text-cyan-300 bg-cyan-950/90 px-1.5 py-0.2 rounded-full border border-cyan-500/40 font-mono flex items-center gap-1">
+              <span className="w-1.5 h-1.5 rounded-full bg-cyan-400 animate-pulse" />
+              FastAPI
+            </span>
+          </div>
+        </div>
+      )}
+
+      {/* Top-Center: Optional Error / Fallback Badge */}
+      {wardTelemetryError && !isFetchingWardTelemetry && (
+        <div className="absolute top-2 sm:top-3 left-1/2 -translate-x-1/2 z-30 pointer-events-auto animate-fadeIn">
+          <div className="flex items-center gap-2 px-3 py-1.5 rounded-full bg-amber-950/90 backdrop-blur-md border border-amber-500/50 text-xs shadow-xl text-amber-200">
+            <AlertTriangle className="w-3.5 h-3.5 text-amber-400 flex-shrink-0" />
+            <span className="text-[11px] font-medium max-w-[260px] truncate">{wardTelemetryError}</span>
+          </div>
+        </div>
+      )}
+
 
       {/* Bottom-Left: Responsive Heat Safety Guide Trigger (Icon-only on mobile) */}
       <div className="absolute bottom-2.5 sm:bottom-3 left-2.5 sm:left-3 z-10 pointer-events-auto">
@@ -460,6 +551,20 @@ export const GISMapCanvas: React.FC = () => {
           </div>
         )}
       </div>
+
+      {/* Bottom-Right: Manual Fit State View Trigger */}
+      <div className="absolute bottom-20 right-2.5 sm:right-3 z-10 pointer-events-auto">
+        <button
+          type="button"
+          onClick={handleResetStateView}
+          className="flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg bg-slate-900/90 hover:bg-slate-800 text-slate-300 hover:text-white border border-slate-700/80 shadow-xl backdrop-blur-md text-[11px] font-medium transition active:scale-95 cursor-pointer"
+          title="Reset map view to whole of West Bengal"
+        >
+          <Maximize2 className="w-3.5 h-3.5 text-amber-400" />
+          <span className="hidden sm:inline">Fit State</span>
+        </button>
+      </div>
     </div>
   );
 };
+

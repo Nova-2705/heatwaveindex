@@ -41,13 +41,18 @@ def run_tests():
         geojson = res.json()
         assert geojson["type"] == "FeatureCollection"
         features = geojson["features"]
-        assert len(features) >= 3, f"Expected at least 3 features, got {len(features)}"
+        assert len(features) == 23, f"Expected all 23 official West Bengal districts, got {len(features)}"
 
         ward_ids = [f["properties"]["id"] for f in features]
-        print(f"  -> Found wards: {ward_ids}")
-        assert "WB-KOL-01" in ward_ids, "Kolkata ward missing!"
-        assert "WB-HWH-02" in ward_ids, "Howrah ward missing!"
-        assert "WB-ASN-03" in ward_ids, "Asansol ward missing!"
+        print(f"  -> Found {len(ward_ids)} districts/wards: {ward_ids}")
+        expected_wards = [
+            "WB-KOL-01", "WB-HWH-02", "WB-ASN-03", "WB-SLG-04",
+            "WB-DGP-05", "WB-PUR-06", "WB-KGP-07", "WB-MLD-08",
+            "WB-DAR-09", "WB-SBN-10", "WB-NAD-11", "WB-24PN-12",
+            "WB-BNK-13", "WB-BIR-14", "WB-MSD-15", "WB-HGL-16"
+        ]
+        for ew in expected_wards:
+            assert ew in ward_ids, f"Required district/ward '{ew}' missing from GeoJSON!"
 
         # Verify multi-temporal risk attributes for Leaflet time-slider
         for f in features:
@@ -65,11 +70,70 @@ def run_tests():
 
             # Verify geometry polygon structure
             geom = f["geometry"]
-            assert geom["type"] == "Polygon"
+            assert geom["type"] in ["Polygon", "MultiPolygon"], f"Invalid geom type {geom['type']} for {name}"
             coords = geom["coordinates"]
-            assert len(coords[0]) >= 4, "Polygon ring must have at least 4 coordinates"
+            if geom["type"] == "Polygon":
+                assert len(coords[0]) >= 4, f"Polygon ring must have >= 4 coordinates for {name}"
+            else:
+                assert len(coords[0][0]) >= 4, f"MultiPolygon ring must have >= 4 coordinates for {name}"
 
-        print("  -> /api/wards GeoJSON OK: Valid FeatureCollection with multi-temporal risk attributes.")
+        print("  -> /api/wards GeoJSON OK: Full-coverage 23-district FeatureCollection with multi-temporal risk attributes.")
+
+        # -------------------------------------------------------------
+        # 2b. Test Live Telemetry & Biometeorology Endpoint: /api/ward/{ward_id}
+        # -------------------------------------------------------------
+        print("\n[TEST 2b] Testing Dynamic Ward Live Telemetry Endpoint '/api/ward/{ward_id}' ...")
+        test_queries = [
+            ("WB-SLG-04", "Siliguri"),
+            ("siliguri", "Siliguri slug"),
+            ("durgapur", "Durgapur slug"),
+            ("purulia", "Purulia slug"),
+            ("kharagpur", "Kharagpur slug"),
+            ("WB-KOL-01", "Kolkata canonical"),
+            ("asansol", "Asansol slug"),
+            ("WB-NAD-11", "Nadia canonical"),
+            ("nadia", "Nadia slug"),
+            ("darjeeling", "Darjeeling slug"),
+            ("howrah", "Howrah slug")
+        ]
+
+        for query_id, label in test_queries:
+            res = client.get(f"/api/ward/{query_id}")
+            assert res.status_code == 200, f"Failed for {label} ({query_id}): {res.status_code}"
+            wdata = res.json()
+            assert "ward_id" in wdata
+            assert "telemetry" in wdata
+            assert "thermal_comfort" in wdata
+
+            # Verify microclimate telemetry
+            telem = wdata["telemetry"]
+            assert "air_temperature" in telem
+            assert "relative_humidity" in telem
+            assert "wind_speed" in telem
+            assert "solar_radiation" in telem
+            assert "mean_radiant_temperature" in telem
+
+            # Verify pythermalcomfort calculated indices
+            tc = wdata["thermal_comfort"]
+            assert "utci" in tc
+            assert "heat_index" in tc
+            assert "hazard_tier" in tc
+            assert tc["hazard_tier"] in ["Low", "Moderate", "High", "Severe"]
+            assert "projected_hospitalization_spike" in tc
+            assert tc["projected_hospitalization_spike"] >= 0
+
+            print(f"  -> {label}: Temp={telem['air_temperature']}°C, RH={telem['relative_humidity']}%, UTCI={tc['utci']}°C, HI={tc['heat_index']}°C, Tier={tc['hazard_tier']}")
+
+        # Test hour parameter
+        res_hour = client.get("/api/ward/purulia?hour=14")
+        assert res_hour.status_code == 200
+        assert res_hour.json()["hour_index"] == 14
+
+        # Test 404 on invalid ward
+        res_404 = client.get("/api/ward/nonexistent-zone")
+        assert res_404.status_code == 404
+        print("  -> /api/ward/{ward_id} OK: Real-time telemetry, pythermalcomfort indices, and error handling verified.")
+
 
         # -------------------------------------------------------------
         # 3. Test Thermal Stress Calculation: /api/calculate-stress
@@ -174,6 +238,36 @@ def run_tests():
         assert res.status_code == 200
         assert res.json()["simulation_step"] >= 1
         print("  -> Simulation step incremented successfully.")
+
+        # -------------------------------------------------------------
+        # 7. Test Emergency Broadcast Alert Endpoint: /api/broadcast-alert
+        # -------------------------------------------------------------
+        print("\n[TEST 7] Testing Emergency Broadcast Alert Endpoint '/api/broadcast-alert' ...")
+        alert_payload = {
+            "ward_id": "WB-KOL-01",
+            "ward_name": "Kolkata Metropolitan Core",
+            "district": "Kolkata",
+            "risk_tier": "severe",
+            "air_temperature": 42.5,
+            "relative_humidity": 68.0,
+            "utci": 51.2,
+            "heat_index": 58.4,
+            "projected_hospitalization_spike": 250,
+            "phone_number": "+919876543210",
+            "channels": ["whatsapp", "sms"]
+        }
+        res = client.post("/api/broadcast-alert", json=alert_payload)
+        assert res.status_code == 200, f"Broadcast failed: {res.status_code} - {res.text}"
+        bdata = res.json()
+        assert bdata["status"] == "dispatched"
+        assert "broadcast_id" in bdata
+        assert "transmission_timestamp" in bdata
+        assert bdata["recipients_count"] == 42
+        assert "channels" in bdata
+        assert "whatsapp" in bdata["channels"]
+        assert "sms" in bdata["channels"]
+        assert "SMS & WhatsApp alert successfully dispatched" in bdata["confirmation"]
+        print(f"  -> Broadcast OK: ID={bdata['broadcast_id']}, Recipients={bdata['recipients_count']}, Channels={bdata['channels']}")
 
     print("\n" + "=" * 70)
     print("ALL TESTS PASSED SUCCESSFULLY! (100% PASS RATE)")

@@ -22,8 +22,8 @@ export interface WBHeatFeatureProperties {
 export interface WBHeatGeoJSONFeature {
   type: 'Feature';
   geometry: {
-    type: 'Polygon';
-    coordinates: number[][][];
+    type: 'Polygon' | 'MultiPolygon';
+    coordinates: any;
   };
   properties: WBHeatFeatureProperties;
 }
